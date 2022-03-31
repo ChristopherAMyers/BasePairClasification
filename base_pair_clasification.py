@@ -146,7 +146,7 @@ def rename_hydrogens(topology):
                 new_name += str(n + 1)
             H.name = new_name
 
-def get_clasifications(pdb_file):
+def get_clasifications(pdb_file, print_results=False):
     pdb = PDBFile(pdb_file)
     positions = pdb.getPositions(True)
     rename_hydrogens(pdb.topology)
@@ -179,10 +179,11 @@ def get_clasifications(pdb_file):
                     results[pair_info.pair_type] = []
                 results[pair_info.pair_type].append(pair_info)
 
-    for pair_type, pair_data in results.items():
-        for pair in pair_data:
-            print("{:6s}:  {:3s} {:3s} - {:3s} {:3s}  {:6.1f} {:6.1f} {:6.1f} | {:8.2f}  {:8.2f}  {:8.2f}".format(pair_type, res1.name, res1.id, res2.name, res2.id, pair.angle12, pair.angle1, pair.angle2, pair.com_dist, pair.closest_heavy_dist, pair.closest_dist))
-        print()
+    if print_results:
+        for pair_type, pair_data in results.items():
+            for pair in pair_data:
+                print("{:6s}:  {:3s} {:3s} - {:3s} {:3s}  {:6.1f} {:6.1f} {:6.1f} | {:8.2f}  {:8.2f}  {:8.2f}".format(pair_type, res1.name, res1.id, res2.name, res2.id, pair.angle12, pair.angle1, pair.angle2, pair.com_dist, pair.closest_heavy_dist, pair.closest_dist))
+            print()
 
     #   debug only: print out vector normals to each base from SVD
     if False:
@@ -195,4 +196,4 @@ def get_clasifications(pdb_file):
     return results
 
 if __name__ == '__main__':
-    get_clasifications(sys.argv[1])
+    get_clasifications(sys.argv[1], print_results=True)
