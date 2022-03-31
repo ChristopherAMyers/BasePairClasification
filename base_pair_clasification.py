@@ -146,8 +146,8 @@ def rename_hydrogens(topology):
                 new_name += str(n + 1)
             H.name = new_name
 
-def get_clasifications():
-    pdb = PDBFile(sys.argv[1])
+def get_clasifications(pdb_file):
+    pdb = PDBFile(pdb_file)
     positions = pdb.getPositions(True)
     rename_hydrogens(pdb.topology)
 
@@ -195,4 +195,4 @@ def get_clasifications():
     return results
 
 if __name__ == '__main__':
-    get_clasifications()
+    get_clasifications(sys.argv[1])
