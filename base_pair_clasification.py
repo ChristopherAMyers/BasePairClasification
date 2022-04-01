@@ -1,6 +1,7 @@
 from openmm.app import PDBFile
 from openmm.unit import *
 import numpy as np
+from math import cos, sin
 import sys
 from copy import deepcopy
 
@@ -22,6 +23,7 @@ class pairInfo():
         self.atoms2 = []
         self.positions1 = []
         self.positions2 = []
+        self.projected_area = 0
 
 
 def get_best_fit_plane(pos, center=None):
@@ -45,6 +47,81 @@ def get_center_of_mass(atoms, pos):
     masses = np.array([atom.element.mass/dalton for atom in atoms])
     com = np.sum(pos*masses[:, None], axis=0)/np.sum(masses)
     return com
+
+def get_stack_angle_sum(heavy_pos1, heavy_pos2):
+
+    dists = np.linalg.norm(heavy_pos1 - heavy_pos2[:, None])
+    
+def get_stacked_projection_area(heavy1, heavy2, norm1, norm2, c1, c2):
+
+    c1 /= angstroms
+    c2 /= angstroms
+    heavy1 /= angstroms
+    heavy2 /= angstroms
+
+    hit_points = []
+    all_points = []
+
+    #   re-center based on c1
+    atoms1 = heavy1 - c1
+    atoms2 = heavy2 - c1
+    c2 = (c2 - c1)
+
+    #   re-orient so that norm1 points along the z-axis
+    norm1 = norm1/np.linalg.norm(norm1)
+    theta = -np.arccos(norm1[2])
+    phi   = -np.arctan2(norm1[1], norm1[0])
+    rot_z = np.array([[cos(phi), -sin(phi), 0], [sin(phi), cos(phi), 0], [0, 0, 1]])
+    rot_y = np.array([[cos(theta), 0, sin(theta)], [0, 1, 0], [-sin(theta), 0, cos(theta)]])
+    rot_zy = rot_y @ rot_z
+    atoms1 = np.dot(rot_zy, atoms1.T).T
+    atoms2 = np.dot(rot_zy, atoms2.T).T
+    norm1 = rot_zy @ np.copy(norm1)
+    norm2 = rot_zy @ np.copy(norm2)
+    c2 = rot_zy @ c2
+
+    #   rays are directed from plane one in the direction of norm 1 and the
+    #   intersection with plane 2 is calculated. If the intersection 
+    area_sum = 0
+    intersect_area_sum = 0
+    dx = 0.2
+    max_extent_1 = np.max(np.linalg.norm(atoms1, axis=1)) + 1.5
+    max_extent_2 = np.max(np.linalg.norm(atoms2 - c2, axis=1)) + 1.5
+    search_points = np.arange(-max_extent_1, max_extent_1, dx)
+    for x in search_points:
+        for y in search_points:
+            p1 = np.array([x, y, 0])
+            
+            if np.min(np.linalg.norm(p1 - atoms1, axis=1)) > 1.5: continue
+            area_sum += 1
+            all_points.append(p1)
+            intersect_param = np.dot(c2 - p1, norm2)/np.dot(norm1, norm2)
+            intersect_point = p1 + intersect_param*norm1
+            
+            if np.min(np.linalg.norm(intersect_point - atoms2, axis=1)) < 1.5:
+                intersect_area_sum += 1
+                hit_points.append(intersect_point)
+            
+    
+    max_points = len(search_points)**2
+    plane1_area = (area_sum/max_points)
+    intersection_area = (intersect_area_sum/max_points)
+
+    if True:
+        with open('tmp.xyz', 'w') as file:
+            file.write('{:d} \n'.format(len(atoms1) + len(atoms2) + len(hit_points) + len(all_points)))
+            file.write('debug \n')
+            for coord in atoms1:
+                file.write('C {:10.5f}  {:10.5f}  {:10.5f} \n'.format(*tuple(coord)))
+            for coord in atoms2:
+                file.write('C {:10.5f}  {:10.5f}  {:10.5f} \n'.format(*tuple(coord)))
+            for coord in hit_points:
+                file.write('He {:10.5f}  {:10.5f}  {:10.5f} \n'.format(*tuple(coord)))
+            for coord in all_points:
+                file.write('Ne {:10.5f}  {:10.5f}  {:10.5f} \n'.format(*tuple(coord)))
+
+    return intersection_area/plane1_area
+
 
 def get_pair_type(atoms1, atoms2, positions):
     positions1 = positions[[atom.index for atom in atoms1]]
@@ -104,6 +181,13 @@ def get_pair_type(atoms1, atoms2, positions):
     angle1 = np.arccos(np.dot(dCom, plane1))*180/np.pi
     angle2 = np.arccos(np.dot(dCom, plane2))*180/np.pi
 
+    area_ratio_1 = get_stacked_projection_area(heavy1, heavy2, plane1, plane2, com1, com2)
+    area_ratio_2 = get_stacked_projection_area(heavy2, heavy1, plane2, plane1, com2, com1)
+    area_ratio = np.max((area_ratio_1, area_ratio_2))
+    result.projected_area = area_ratio
+
+
+
     #   attempt to clasify types of base pairs
     pair_type = 'UNK'
     if len(hbonds) > 0 and (angle1 > 60 and angle1 < 120):
@@ -111,10 +195,15 @@ def get_pair_type(atoms1, atoms2, positions):
     else:
         if closest_heavy_heavy > 5.0:
             return result
-        if (angle1 < 35 or angle1 > 145) and com_dist < 4.5:
+
+        if (angle12 < 45 or angle12 >  135) and area_ratio > 0.20:
             pair_type = 'STACK'
-        elif ((angle1 > 30 and angle1 < 60) or (angle1 > 120 and angle1 < 150)):
+        elif (angle12 < 45 or angle12 >  135)  and area_ratio < 0.20:
             pair_type = 'STAIR'
+        # if (angle1 < 35 or angle1 > 145) and com_dist < 4.5:
+        #     pair_type = 'STACK'
+        # elif ((angle1 > 30 and angle1 < 60) or (angle1 > 120 and angle1 < 150)):
+        #     pair_type = 'STAIR'
         else:
             pair_type = 'UNK'
     
@@ -190,10 +279,18 @@ def get_clasifications(pdb_file, print_results=False):
 
     if print_results:
         for pair_type, pair_data in results.items():
+            print("{:6s}   {:3s} {:3s} - {:3s} {:3s}  {:>12s} | {:>12s}  {:>12s}  {:>12s} | {:>12}" \
+                    .format("", "Res", "ID", "Res", "ID", "Angle-norms",  \
+                        "COM-dist", "Closest dist", "Closest dist", "Proj. Area"))
+            print("{:6s}   {:3s} {:3s} - {:3s} {:3s}  {:>12s} | {:>12s}  {:>12s}  {:>12s} | {:>12s}" \
+                    .format("", "", "", "", "", "",  \
+                        "", "Heavy-Heavy", "All-All", ""))
             for pair in pair_data:
                 res1 = pair.atoms1[0].residue
                 res2 = pair.atoms2[0].residue
-                print("{:6s}:  {:3s} {:3s} - {:3s} {:3s}  {:6.1f} {:6.1f} {:6.1f} | {:8.2f}  {:8.2f}  {:8.2f}".format(pair_type, res1.name, res1.id, res2.name, res2.id, pair.angle12, pair.angle1, pair.angle2, pair.com_dist, pair.closest_heavy_dist, pair.closest_dist))
+                print("{:6s}:  {:3s} {:3s} - {:3s} {:3s}  {:12.1f} | {:12.2f}  {:12.2f}  {:12.2f} | {:12.5f}" \
+                    .format(pair_type, res1.name, res1.id, res2.name, res2.id, pair.angle12, \
+                        pair.com_dist, pair.closest_heavy_dist, pair.closest_dist, pair.projected_area))
             print()
 
     #   debug only: print out vector normals to each base from SVD
