@@ -2,6 +2,7 @@ from openmm.app import PDBFile
 from openmm.unit import *
 import numpy as np
 import sys
+from copy import deepcopy
 
 #   maximum hydrogen - acceptor distance in angstroms
 HBOND_DIST = 2.8
@@ -17,6 +18,10 @@ class pairInfo():
         self.closest_heavy_dist = None
         self.pair_type = None
         self.closest_dist = None
+        self.atoms1 = []
+        self.atoms2 = []
+        self.positions1 = []
+        self.positions2 = []
 
 
 def get_best_fit_plane(pos, center=None):
@@ -120,6 +125,10 @@ def get_pair_type(atoms1, atoms2, positions):
     result.com_dist = com_dist
     result.closest_heavy_dist = closest_heavy_heavy
     result.closest_dist = closest_dist
+    result.atoms1 = atoms1
+    result.atoms2 = atoms2
+    result.positions1 = deepcopy(positions1)
+    result.positions2 = deepcopy(positions2)
     return result
 
 
@@ -164,13 +173,13 @@ def get_clasifications(pdb_file, print_results=False):
             atoms2 = []
             for atom in res1.atoms():
                 #   ignore sugar and phosphate atoms
-                if atom.name[-1] == "'": continue
-                if atom.name in ['P', 'OP1', 'OP2']: continue
+                if "'" in atom.name: continue
+                if atom.name in ['P', 'OP1', 'OP2', 'OP3', 'OP4', 'HP3', 'HP4']: continue
                 atoms1.append(atom)
             for atom in res2.atoms():
                 #   ignore sugar and phosphate atoms
-                if atom.name[-1] == "'": continue
-                if atom.name in ['P', 'OP1', 'OP2']: continue
+                if  "'" in atom.name: continue
+                if atom.name in ['P', 'OP1', 'OP2', 'OP3', 'OP4', 'HP3', 'HP4']: continue
                 atoms2.append(atom)
 
             pair_info = get_pair_type(atoms1, atoms2, positions)
@@ -182,6 +191,8 @@ def get_clasifications(pdb_file, print_results=False):
     if print_results:
         for pair_type, pair_data in results.items():
             for pair in pair_data:
+                res1 = pair.atoms1[0].residue
+                res2 = pair.atoms2[0].residue
                 print("{:6s}:  {:3s} {:3s} - {:3s} {:3s}  {:6.1f} {:6.1f} {:6.1f} | {:8.2f}  {:8.2f}  {:8.2f}".format(pair_type, res1.name, res1.id, res2.name, res2.id, pair.angle12, pair.angle1, pair.angle2, pair.com_dist, pair.closest_heavy_dist, pair.closest_dist))
             print()
 
